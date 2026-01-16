@@ -35,7 +35,10 @@ export const AppDataSource = new DataSource({
   type: "postgres",
   url: process.env.DB_URL, 
   entities: [EmailJob],
-  synchronize: true
+  synchronize: true,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // Redis connection 
