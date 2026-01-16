@@ -17,10 +17,9 @@ import { EmailJob } from "./models/EmailJob";
 import { requireAuth } from "./middleware/auth";
 
 const upload = multer({ dest: "uploads/" });
-
 const app = express();
 
-// Use Render’s port and allow frontend origin (update if your frontend URL changes)
+// Render port and frontend origin
 const PORT = process.env.PORT || 4001;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
@@ -30,36 +29,25 @@ app.use(session({ secret: "reachinbox", resave: false, saveUninitialized: false 
 app.use(passport.initialize());
 app.use(passport.session());
 
-// PostgreSQL connection 
+// PostgreSQL (Supabase) connection
 export const AppDataSource = new DataSource({
   type: "postgres",
-  url: process.env.DB_URL, 
+  url: process.env.DB_URL,
+  ssl: { rejectUnauthorized: false }, // important for Render → Supabase connection
   entities: [EmailJob],
   synchronize: true,
-  ssl: {
-    rejectUnauthorized: false
-  }
 });
 
-// Redis connection 
-const redis = new Redis(process.env.REDIS_URL!, {
-  maxRetriesPerRequest: null
-});
-
+// Redis (Upstash TCP)
+const redis = new Redis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
 export const emailQueue = new Queue("email-queue", { connection: redis });
 
 // GOOGLE AUTH ROUTES
-app.get(
-  "/auth/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
-);
-
+app.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
 app.get(
   "/auth/google/callback",
   passport.authenticate("google", { failureRedirect: FRONTEND_URL + "/" }),
-  (req, res) => {
-    res.redirect(FRONTEND_URL + "/dashboard");
-  }
+  (req, res) => res.redirect(FRONTEND_URL + "/dashboard")
 );
 
 // AUTH APIs
@@ -68,9 +56,7 @@ app.get("/api/me", (req: any, res) => {
   res.json(req.user);
 });
 
-app.post("/api/logout", (req, res) => {
-  req.logout(() => res.sendStatus(200));
-});
+app.post("/api/logout", (req, res) => req.logout(() => res.sendStatus(200)));
 
 // Schedule CSV emails
 app.post("/api/schedule/csv", requireAuth, upload.single("file"), async (req: any, res) => {
@@ -92,7 +78,7 @@ app.post("/api/schedule/csv", requireAuth, upload.single("file"), async (req: an
           body,
           sender: req.user.email,
           sendAt: new Date(currentTime),
-          sequence: sequence++
+          sequence: sequence++,
         });
         await repo.save(job);
 
@@ -114,7 +100,7 @@ app.get("/api/scheduled", requireAuth, async (req: any, res) => {
   const repo = AppDataSource.getRepository(EmailJob);
   const scheduled = await repo.find({
     where: { sender: req.user.email, status: "scheduled" },
-    order: { sendAt: "ASC" }
+    order: { sendAt: "ASC" },
   });
   res.json(scheduled);
 });
@@ -124,7 +110,7 @@ app.get("/api/sent", requireAuth, async (req: any, res) => {
   const repo = AppDataSource.getRepository(EmailJob);
   const sent = await repo.find({
     where: { sender: req.user.email, status: "sent" },
-    order: { sentAt: "DESC" }
+    order: { sentAt: "DESC" },
   });
   res.json(sent);
 });
@@ -133,11 +119,8 @@ app.get("/api/sent", requireAuth, async (req: any, res) => {
 if (process.env.RUN_MODE !== "worker") {
   AppDataSource.initialize()
     .then(() => {
-      app.listen(PORT, () => {
-        console.log(`API running on port ${PORT}`);
-      });
+      app.listen(PORT, () => console.log(`API running on port ${PORT}`));
     })
-    .catch(err => {
-      console.error("Error initializing database:", err);
-    });
+    .catch(err => console.error("Error initializing database:", err));
 }
+
